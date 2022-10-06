@@ -16,28 +16,47 @@ RE_NICKNAME = re.compile(r"[A-Za-z][A-Za-z\d\[\]\\\`\_\^\{\|\}]{0,8}")
 
 class Message:
     @staticmethod
-    def user_greeting(user: Client) -> str:
-        return Message.RPL_WELCOME(user) + Message.RPL_YOURHOST() + Message.RPL_CREATED()
+    def user_greeting(client: Client) -> str:
+        return f':{HOSTNAME} '.join([Message.RPL_WELCOME(client) , Message.RPL_YOURHOST() , Message.RPL_CREATED() , Message.RPL_MYINFO(client), Message.ERR_NOMOTD()])
 
     @staticmethod
-    def RPL_WELCOME(user: Client) -> str:
-        return f"001 {user.nickname} :Welcome to the Internet Relay Network {user.nickname}!{user.username}@{HOSTNAME}"
+    def RPL_WELCOME(client: Client) -> str:
+        return f"001 {client.nickname} :Welcome to the Internet Relay Network {client.nickname}!{client.username}@{HOSTNAME}\r\n"
 
     @staticmethod
     def RPL_YOURHOST() -> str:
-        return f"002 Your host is {HOSTNAME}, running version {VER}"
+        return f"002 Your host is {HOSTNAME}, running version {VER}\r\n"
 
     @staticmethod
     def RPL_CREATED() -> str:
-        return "003 This server was created sometime"
+        return "003 This server was created sometime\r\n"
+
+    @staticmethod
+    def RPL_MYINFO(client: Client) -> str:
+        return f"004 {HOSTNAME} {VER} o o\r\n"
+
+    @staticmethod
+    def RPL_LUSERCLIENT() -> str:
+        # TODO: correct number of users
+        return "251 :There are 1 users and 0 services on 1 servers\r\n"
 
     @staticmethod
     def ERR_UNKNOWNCOMMAND(command: str) -> str:
-        return f"421 {command.upper()} :Unknown command"
+        return f"421 {command.upper()} :Unknown command\r\n"
+
+    @staticmethod
+    def ERR_NOMOTD() -> str:
+        return "422 :MOTD File is missing\r\n"
 
     @staticmethod
     def ERR_NEEDMOREPARAMS(command: str) -> str:
-        return f"461 {command.upper()} :Not enough parameters"
+        return f"461 {command.upper()} :Not enough parameters\r\n"
+
+    @staticmethod
+    def CMD_PONG(target: str) -> str:
+        # TODO: I don't think this is how it works
+        return f"PONG {HOSTNAME} :{target}\r\n"
+
 
 
 class Server:
@@ -85,12 +104,12 @@ class Server:
     def handle_message(self, user: Client, msg: list[str]) -> None:
         if len(msg) == 0:
             return
-        prefix: str | None = None
 
+        # TODO: I have misunderstood what the prefix does, should probably investigate and fix
         # Message starts with a prefix
-        if msg[0][0] == ":":
-            prefix = msg[0][1:]
-            msg.pop(0)
+        #if msg[0][0] == ":":
+        #    user.prefix = msg[0][1:]
+        #    msg.pop(0)
 
         # TODO: create a message class which will store necessary data and handle the command processing
         msg[0] = msg[0].upper()
@@ -99,15 +118,20 @@ class Server:
                 self.cmd_NICK(user, msg)
             case "USER":
                 self.cmd_USER(user, msg)
+            case "PING":
+                self.cmd_PING(user, msg)
+
+            case "CAP":
+                pass
 
             case _:
                 print(f"[CMD][NOT_HANDLED] {msg}")
                 # TODO: the docs say it should be returned to "a registered cliend". should check for auth?
-                user.send(Message.ERR_UNKNOWNCOMMAND(msg[0]))
+                user.send_command(Message.ERR_UNKNOWNCOMMAND(msg[0]))
 
     def cmd_NICK(self, user: Client, msg: list[str]) -> None:
         if len(msg) < 2:
-            user.send(Message.ERR_NEEDMOREPARAMS(msg[0]))
+            user.send_command(Message.ERR_NEEDMOREPARAMS(msg[0]))
             return
 
         nickname = msg[1][:9]
@@ -119,11 +143,11 @@ class Server:
             pass
 
         if user.is_authenticated:
-            user.send(Message.user_greeting(user))
+            user.send_command(Message.user_greeting(user))
 
     def cmd_USER(self, user: Client, msg: list[str]) -> None:
         if len(msg) < 5:
-            user.send(Message.ERR_NEEDMOREPARAMS(msg[0]))
+            user.send_command(Message.ERR_NEEDMOREPARAMS(msg[0]))
             return
 
         # TODO: validation of all fields
@@ -143,7 +167,12 @@ class Server:
 
         print(f"[CMD][USER] SET USER \"{user.username}\", w={user.mode[0]}, i={user.mode[1]}, {user.realname}")
         if user.is_authenticated:
-            user.send(Message.user_greeting(user))
+            user.send_command(Message.user_greeting(user))
+
+    def cmd_PING(self, user: Client, msg: list[str]) -> None:
+        # TODO: this is a placeholder
+        user.send_command(Message.CMD_PONG(msg[1]))
+
 
 
 if __name__ == "__main__":
