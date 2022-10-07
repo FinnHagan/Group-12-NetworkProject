@@ -7,7 +7,6 @@ PORT = 6667
 HOST = "::1" #fc00:1337::17/96 is the host we will use, ::1 is for testing purposes
 CHANNEL = "#hello"
 NICK = "BOT"
-SERVER = (HOST, PORT)
 
 #Initialising the socket
 s = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
@@ -19,9 +18,9 @@ def connect():
     try:
         print("BOT is trying to connect to the server...")
         #Connecting to the server
-        s.connect(SERVER)
+        s.connect((HOST, PORT))
         #Alerts the user what HOST and PORT the BOT is connecting to
-        print ('Connecting at {} port {}' .format(*SERVER))
+        print (f"Connecting at {HOST}/{PORT}")
 
     #If the BOT cannot to connect to the server
     except:
@@ -29,7 +28,7 @@ def connect():
         time.sleep(5)
         #Try to connect again
         try:
-            s.connect(SERVER)
+            s.connect((HOST, PORT))
         #If failed again, stop trying to reconnect
         except:
             print("BOT cannot connect to the server, disconnecting...")
@@ -78,9 +77,9 @@ def main():
         message = s.recv(2048).decode("UTF-8")
         print(message)
         message = message_split(message)
-
+        
         if message[0] == "PING":
             ping_pong(message[0])
-            
+                        
 #Calls the main function to start the program
 main()
