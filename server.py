@@ -5,57 +5,14 @@ from socket import AF_INET6, create_server
 from channel import Channel
 from client import Client
 
-from config import HOST, HOSTNAME, PORT, VER
+from config import HOST, PORT
+from message import Message
 
 
 SHOULD_STOP = False
 CLIENT: Client | None = None
 
 RE_NICKNAME = re.compile(r"[A-Za-z][A-Za-z\d\[\]\\\`\_\^\{\|\}]{0,8}")
-
-
-class Message:
-    @staticmethod
-    def user_greeting(client: Client) -> str:
-        return f':{HOSTNAME} '.join([Message.RPL_WELCOME(client) , Message.RPL_YOURHOST() , Message.RPL_CREATED() , Message.RPL_MYINFO(client), Message.ERR_NOMOTD()])
-
-    @staticmethod
-    def RPL_WELCOME(client: Client) -> str:
-        return f"001 {client.nickname} :Welcome to the Internet Relay Network {client.nickname}!{client.username}@{HOSTNAME}\r\n"
-
-    @staticmethod
-    def RPL_YOURHOST() -> str:
-        return f"002 Your host is {HOSTNAME}, running version {VER}\r\n"
-
-    @staticmethod
-    def RPL_CREATED() -> str:
-        return "003 This server was created sometime\r\n"
-
-    @staticmethod
-    def RPL_MYINFO(client: Client) -> str:
-        return f"004 {HOSTNAME} {VER} o o\r\n"
-
-    @staticmethod
-    def RPL_LUSERCLIENT() -> str:
-        # TODO: correct number of users
-        return "251 :There are 1 users and 0 services on 1 servers\r\n"
-
-    @staticmethod
-    def ERR_UNKNOWNCOMMAND(command: str) -> str:
-        return f"421 {command.upper()} :Unknown command\r\n"
-
-    @staticmethod
-    def ERR_NOMOTD() -> str:
-        return "422 :MOTD File is missing\r\n"
-
-    @staticmethod
-    def ERR_NEEDMOREPARAMS(command: str) -> str:
-        return f"461 {command.upper()} :Not enough parameters\r\n"
-
-    @staticmethod
-    def CMD_PONG(target: str) -> str:
-        # TODO: I don't think this is how it works
-        return f"PONG {HOSTNAME} :{target}\r\n"
 
 
 
@@ -107,7 +64,7 @@ class Server:
 
         # TODO: I have misunderstood what the prefix does, should probably investigate and fix
         # Message starts with a prefix
-        #if msg[0][0] == ":":
+        # if msg[0][0] == ":":
         #    user.prefix = msg[0][1:]
         #    msg.pop(0)
 
@@ -172,7 +129,6 @@ class Server:
     def cmd_PING(self, user: Client, msg: list[str]) -> None:
         # TODO: this is a placeholder
         user.send_command(Message.CMD_PONG(msg[1]))
-
 
 
 if __name__ == "__main__":
