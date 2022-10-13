@@ -1,24 +1,22 @@
 import re
+import select
 from collections import deque
-from socket import AF_INET6, create_server
+from socket import AF_INET, AF_INET6, create_server, socket
 
 from channel import Channel
 from client import Client
-
 from config import HOST, PORT
 from message import Message
-
-
-SHOULD_STOP = False
-CLIENT: Client | None = None
 
 RE_NICKNAME = re.compile(r"[A-Za-z][A-Za-z\d\[\]\\\`\_\^\{\|\}]{0,8}")
 
 
-
 class Server:
+    server: socket
     name: str  # [1..64]
     channels: dict[str, Channel]  # {channel_name: Channel}
+    clients: set[Client]
+    # TODO: REMOVE THE QUEUE? might not be necessary at all
     # TODO: store Message?
     # TODO: store these messages with a user? might be useful with async
     # Mutliple messages can arrive at the same time, they have to be stored somewhere for processing
@@ -28,32 +26,36 @@ class Server:
         self.name = name
         self.channels = {}
         self.queue = deque()
+        self.clients = set()
+
+    def bind(self, addr: str = "127.0.0.1", port: int = 6667, ipv6: bool = True) -> None:
+        # TODO: should probably reset the connections? Or maybe the whole server
+        self.server = create_server((addr, port), family=AF_INET6 if ipv6 else AF_INET)
 
     def run(self) -> None:
         try:
-            with create_server((HOST, PORT), family=AF_INET6) as s:
-                conn, addr = s.accept()
-                CLIENT = Client(conn)
-                print(f"Connection from {addr}")
-                data: str = ""
-                while not SHOULD_STOP:
-                    data = data + CLIENT.conn.recv(512).decode("UTF-8")
-                    # print(f"MSG FROM {conn}: {len(data)} {data}, {msg}")
-                    # There can be multiple '\r\n' separated messages in one chunk of data
-                    messages: list[str] = data.split("\r\n")
-                    # Add messages to the processing queue
-                    self.queue.extend(messages[:-1])
-                    # Handle the possibility that the last message is incomplete
-                    if messages[-1] == "":
-                        data = ""
-                    else:
-                        # Leave the last message in the current chunk for later
-                        data = data + messages[-1]
+            while True:
+                client_conns: list[socket] = [client.conn for client in self.clients]
+                # TODO: some clients might have writes blocked, which is what 'w' is for
+                # In that case there should probably be a write queue for each client?
+                r, w, _ = select.select(client_conns + [self.server], [], [], 15)
 
-                    # TODO: deque might not be needed here, can use a list instead
-                    for msg in self.queue:
-                        self.handle_message(CLIENT, msg.split(" "))
-                    self.queue = deque()
+                for i in r:
+                    if i is self.server:
+                        conn, _ = self.server.accept()
+                        self.clients.add(Client(conn))
+                    else:
+                        data = i.recv(512).decode("UTF-8")
+                        # There can be multiple '\r\n' separated messages in one chunk of data
+                        messages: list[str] = data.split("\r\n")
+                        # print(f"MSG FROM {i}: {len(data)} {data}, {messages}")
+                        # Search for the client with current socket
+                        client = next(client for client in self.clients if client.conn is i)
+                        for msg in messages:
+                            if msg == "":
+                                continue
+                            # TODO: store clients in a dictionary {socket: client}? might make lookup faster
+                            self.handle_message(client, msg.split(" "))
 
         except KeyboardInterrupt:
             print("CTRL-C received.")
@@ -135,4 +137,5 @@ if __name__ == "__main__":
     print("Started...")
 
     server = Server()
+    server.bind(HOST, PORT, True)
     server.run()
