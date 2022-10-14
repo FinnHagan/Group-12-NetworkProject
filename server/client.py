@@ -5,7 +5,7 @@ import log
 
 class Client:
     conn: socket
-    nickname: str = ""  # [1..10]
+    nickname: str = "*"  # [1..10]
     username: str = ""
     realname: str = ""
     op: bool = False
@@ -18,7 +18,7 @@ class Client:
     # TODO: refactor this function. Remove default values and use something that makes sense
     def is_authenticated(self) -> bool:
         # TODO: check auth requirements
-        return self.nickname != "" and self.username != ""
+        return self.nickname != "*" and self.username != ""
 
     def send_command(self, data: str) -> None:
         '''Sends a string to the user. Adds a server prefix.'''

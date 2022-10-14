@@ -48,6 +48,14 @@ class Message:
         return f"422 {client.nickname} :MOTD File is missing\r\n"
 
     @staticmethod
+    def ERR_ERRONEUSNICKNAME(client: Client, name: str) -> str:
+        return f"432 {client.nickname} {name} :Erroneous nickname\r\n"
+
+    @staticmethod
+    def ERR_NICKNAMEINUSE(client: Client, name: str) -> str:
+        return f"433 {client.nickname} {name} :Nickname is already in use\r\n"
+
+    @staticmethod
     def ERR_NEEDMOREPARAMS(command: str) -> str:
         return f"461 {command.upper()} :Not enough parameters\r\n"
 
