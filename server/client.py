@@ -20,6 +20,7 @@ class Client:
         return self.nickname != "" and self.username != ""
 
     def send_command(self, data: str) -> None:
+        '''Sends a string to the user. Adds a server prefix.'''
         print(f"[SEND_COMMAND] SENDING {self.nickname=} {data=}")
 
         self.conn.send(f":{config.HOSTNAME} {data}".encode("UTF-8"))

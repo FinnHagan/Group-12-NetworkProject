@@ -1,47 +1,51 @@
-from config import HOSTNAME, VER
+import config
 from client import Client
 
 
 class Message:
 
     @staticmethod
-    def user_greeting(client: Client) -> str:
-        return f":{HOSTNAME} ".join([
+    def user_greeting(client: Client, user_count: int = 0) -> str:
+        # TODO: should be refactored. Could add a funciton to Client which takes an array of strings and adds prefixes.
+        return f":{config.HOSTNAME} ".join([
             Message.RPL_WELCOME(client),
-            Message.RPL_YOURHOST(),
-            Message.RPL_CREATED(),
+            Message.RPL_YOURHOST(client),
+            Message.RPL_CREATED(client),
             Message.RPL_MYINFO(client),
-            Message.ERR_NOMOTD()
+            Message.RPL_LUSERCLIENT(client, user_count),
+            Message.ERR_NOMOTD(client)
         ])
 
     @staticmethod
     def RPL_WELCOME(client: Client) -> str:
-        return f"001 {client.nickname} :Welcome to the Internet Relay Network {client.nickname}!{client.username}@{HOSTNAME}\r\n"
+        return f"001 {client.nickname} :Welcome to the Internet Relay Network {client.nickname}!{client.username}@{config.HOSTNAME}\r\n"
 
     @staticmethod
-    def RPL_YOURHOST() -> str:
-        return f"002 Your host is {HOSTNAME}, running version {VER}\r\n"
+    def RPL_YOURHOST(client: Client) -> str:
+        return f"002 {client.nickname} :Your host is {config.HOSTNAME}, running version {config.VER}\r\n"
 
     @staticmethod
-    def RPL_CREATED() -> str:
-        return "003 This server was created sometime\r\n"
+    def RPL_CREATED(client: Client) -> str:
+        return f"003 {client.nickname} :This server was created sometime\r\n"
 
     @staticmethod
     def RPL_MYINFO(client: Client) -> str:
-        return f"004 {HOSTNAME} {VER} o o\r\n"
+        return f"004 {client.nickname} {config.HOSTNAME} {config.VER} o o\r\n"
 
     @staticmethod
-    def RPL_LUSERCLIENT() -> str:
-        # TODO: correct number of users
-        return "251 :There are 1 users and 0 services on 1 servers\r\n"
+    def RPL_LUSERCLIENT(client: Client,
+                        user_count: int = 0,
+                        service_count: int = 0,
+                        server_count: int = 1) -> str:
+        return f"251 {client.nickname} :There are {user_count} users and {service_count} services on {server_count} servers\r\n"
 
     @staticmethod
     def ERR_UNKNOWNCOMMAND(command: str) -> str:
         return f"421 {command.upper()} :Unknown command\r\n"
 
     @staticmethod
-    def ERR_NOMOTD() -> str:
-        return "422 :MOTD File is missing\r\n"
+    def ERR_NOMOTD(client: Client) -> str:
+        return f"422 {client.nickname} :MOTD File is missing\r\n"
 
     @staticmethod
     def ERR_NEEDMOREPARAMS(command: str) -> str:
@@ -50,4 +54,4 @@ class Message:
     @staticmethod
     def CMD_PONG(target: str) -> str:
         # TODO: I don't think this is how it works
-        return f"PONG {HOSTNAME} :{target}\r\n"
+        return f"PONG {config.HOSTNAME} :{target}\r\n"

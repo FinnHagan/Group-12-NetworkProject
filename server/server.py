@@ -3,9 +3,9 @@ import select
 from collections import deque
 from socket import AF_INET, AF_INET6, create_server, socket
 
+import config
 from channel import Channel
 from client import Client
-from config import HOST, PORT
 from message import Message
 
 RE_NICKNAME = re.compile(r"[A-Za-z][A-Za-z\d\[\]\\\`\_\^\{\|\}]{0,8}")
@@ -38,30 +38,31 @@ class Server:
                 client_conns: list[socket] = [client.conn for client in self.clients]
                 # TODO: some clients might have writes blocked, which is what 'w' is for
                 # In that case there should probably be a write queue for each client?
-                r, w, _ = select.select(client_conns + [self.server], [], [], 15)
+                r, _, _ = select.select(client_conns + [self.server], [], [], 15)
 
                 for i in r:
                     if i is self.server:
                         conn, _ = self.server.accept()
                         self.clients.add(Client(conn))
                     else:
+                        # TODO: handle disconnected clients
                         data = i.recv(512).decode("UTF-8")
                         # There can be multiple '\r\n' separated messages in one chunk of data
                         messages: list[str] = data.split("\r\n")
                         # print(f"MSG FROM {i}: {len(data)} {data}, {messages}")
                         # Search for the client with current socket
-                        client = next(client for client in self.clients if client.conn is i)
+                        sender = next(client for client in self.clients if client.conn is i)
                         for msg in messages:
                             if msg == "":
                                 continue
                             # TODO: store clients in a dictionary {socket: client}? might make lookup faster
-                            self.handle_message(client, msg.split(" "))
+                            self.handle_message(sender, msg.split(" "))
 
         except KeyboardInterrupt:
-            print("CTRL-C received.")
+            print("[SERVER] KeyboardInterrupt received. Quitting...")
 
     def handle_message(self, user: Client, msg: list[str]) -> None:
-        if len(msg) == 0:
+        if len(msg) == 0 or len(msg[0]) == 0:
             return
 
         # TODO: I have misunderstood what the prefix does, should probably investigate and fix
@@ -102,7 +103,7 @@ class Server:
             pass
 
         if user.is_authenticated:
-            user.send_command(Message.user_greeting(user))
+            user.send_command(Message.user_greeting(user, len(self.clients)))
 
     def cmd_USER(self, user: Client, msg: list[str]) -> None:
         if len(msg) < 5:
@@ -126,7 +127,7 @@ class Server:
 
         print(f"[CMD][USER] SET USER \"{user.username}\", w={user.mode[0]}, i={user.mode[1]}, {user.realname}")
         if user.is_authenticated:
-            user.send_command(Message.user_greeting(user))
+            user.send_command(Message.user_greeting(user, len(self.clients)))
 
     def cmd_PING(self, user: Client, msg: list[str]) -> None:
         # TODO: this is a placeholder
@@ -134,8 +135,8 @@ class Server:
 
 
 if __name__ == "__main__":
-    print("Started...")
+    print("[SERVER] Started...")
 
     server = Server()
-    server.bind(HOST, PORT, True)
+    server.bind(config.HOST, config.PORT, True)
     server.run()
