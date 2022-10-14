@@ -1,5 +1,6 @@
 from socket import socket
 import config
+import log
 
 
 class Client:
@@ -21,6 +22,6 @@ class Client:
 
     def send_command(self, data: str) -> None:
         '''Sends a string to the user. Adds a server prefix.'''
-        print(f"[SEND_COMMAND] SENDING {self.nickname=} {data=}")
+        log.debug(f"[SEND_COMMAND] SENDING {self.nickname=} {data=}")
 
         self.conn.send(f":{config.HOSTNAME} {data}".encode("UTF-8"))

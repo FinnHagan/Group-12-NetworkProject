@@ -4,6 +4,7 @@ from collections import deque
 from socket import AF_INET, AF_INET6, create_server, socket
 
 import config
+import log
 from channel import Channel
 from client import Client
 from message import Message
@@ -40,18 +41,27 @@ class Server:
                 # In that case there should probably be a write queue for each client?
                 r, _, _ = select.select(client_conns + [self.server], [], [], 15)
 
+                i: socket
                 for i in r:
                     if i is self.server:
                         conn, _ = self.server.accept()
                         self.clients.add(Client(conn))
                     else:
-                        # TODO: handle disconnected clients
-                        data = i.recv(512).decode("UTF-8")
+                        # Search for the client with current socket
+                        sender = next(client for client in self.clients if client.conn is i)
+
+                        # TODO: make sure disconnection handling works as it should
+                        try:
+                            data = i.recv(512).decode("UTF-8")
+                        except ConnectionError as e:
+                            log.debug(f"[CLIENT] Connection error while trying to read form {i}: {e}")
+                            self.cmd_QUIT(sender, ["QUIT", ":Leaving"])
+                            continue
+
                         # There can be multiple '\r\n' separated messages in one chunk of data
                         messages: list[str] = data.split("\r\n")
                         # print(f"MSG FROM {i}: {len(data)} {data}, {messages}")
-                        # Search for the client with current socket
-                        sender = next(client for client in self.clients if client.conn is i)
+
                         for msg in messages:
                             if msg == "":
                                 continue
@@ -80,12 +90,14 @@ class Server:
                 self.cmd_USER(user, msg)
             case "PING":
                 self.cmd_PING(user, msg)
+            case "QUIT":
+                self.cmd_QUIT(user, msg)
 
             case "CAP":
                 pass
 
             case _:
-                print(f"[CMD][NOT_HANDLED] {msg}")
+                log.debug(f"[CMD][NOT_HANDLED] {msg}")
                 # TODO: the docs say it should be returned to "a registered cliend". should check for auth?
                 user.send_command(Message.ERR_UNKNOWNCOMMAND(msg[0]))
 
@@ -97,7 +109,7 @@ class Server:
         nickname = msg[1][:9]
         if RE_NICKNAME.fullmatch(nickname):
             user.nickname = nickname
-            print(f"[CMD][NICK] SET VALID NAME \"{nickname}\"")
+            log.debug(f"[CMD][NICK] SET VALID NAME \"{nickname}\"")
         else:
             # TODO: handle invalid name
             pass
@@ -125,7 +137,7 @@ class Server:
         else:
             user.realname = msg[4]
 
-        print(f"[CMD][USER] SET USER \"{user.username}\", w={user.mode[0]}, i={user.mode[1]}, {user.realname}")
+        log.debug(f"[CMD][USER] SET USER \"{user.username}\", w={user.mode[0]}, i={user.mode[1]}, {user.realname}")
         if user.is_authenticated:
             user.send_command(Message.user_greeting(user, len(self.clients)))
 
@@ -133,6 +145,13 @@ class Server:
         # TODO: this is a placeholder
         user.send_command(Message.CMD_PONG(msg[1]))
 
+    def cmd_QUIT(self, user: Client, msg: list[str]) -> None:
+        log.debug(f"[CMD][QUIT] {user.username} quit with message {msg=}")
+        # TODO: leave notifications, message handling etc.
+        self.remove_client(user)
+
+    def remove_client(self, client: Client) -> None:
+        self.clients.remove(client)
 
 if __name__ == "__main__":
     print("[SERVER] Started...")
