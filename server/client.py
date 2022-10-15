@@ -20,8 +20,15 @@ class Client:
         # TODO: check auth requirements
         return self.nickname != "*" and self.username != ""
 
-    def send_command(self, data: str) -> None:
+    def send_prefix(self, data: str) -> None:
         '''Sends a string to the user. Adds a server prefix.'''
-        log.debug(f"[SEND_COMMAND] SENDING {self.nickname=} {data=}")
+        log.debug(f"[SEND_PREFIX] SENDING {self.nickname=} {data=}")
 
         self.conn.send(f":{config.HOSTNAME} {data}".encode("UTF-8"))
+
+    # TODO: implement a command which sends list[str]
+    def send(self, data: str) -> None:
+        '''Sends a string to the user. Does not add a prefix.'''
+        log.debug(f"[SEND] SENDING {self.nickname=} {data=}")
+
+        self.conn.send(data.encode("UTF-8"))

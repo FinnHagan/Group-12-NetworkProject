@@ -92,6 +92,10 @@ class Server:
                 self.cmd_PING(user, msg)
             case "QUIT":
                 self.cmd_QUIT(user, msg)
+            case "JOIN":
+                self.cmd_JOIN(user, msg)
+            case "WHO":
+                self.cmd_WHO(user, msg)
 
             case "CAP":
                 pass
@@ -99,11 +103,11 @@ class Server:
             case _:
                 log.debug(f"[CMD][NOT_HANDLED] {msg}")
                 # TODO: the docs say it should be returned to "a registered cliend". should check for auth?
-                user.send_command(Message.ERR_UNKNOWNCOMMAND(msg[0]))
+                user.send_prefix(Message.ERR_UNKNOWNCOMMAND(msg[0]))
 
     def cmd_NICK(self, user: Client, msg: list[str]) -> None:
         if len(msg) < 2:
-            user.send_command(Message.ERR_NEEDMOREPARAMS(msg[0]))
+            user.send_prefix(Message.ERR_NEEDMOREPARAMS(msg[0]))
             return
 
         nickname = msg[1][:9]
@@ -111,7 +115,7 @@ class Server:
             for client in self.clients:
                 if client.nickname == nickname:
                     log.debug(f"[CMD][NICK] Tried to set a name that is already taken: {nickname}")
-                    user.send_command(Message.ERR_NICKNAMEINUSE(user, nickname))
+                    user.send_prefix(Message.ERR_NICKNAMEINUSE(user, nickname))
                     return
             else:
                 # TODO: if a user changes their name then a response must be sent
@@ -121,14 +125,14 @@ class Server:
         else:
             # TODO: verify that the regex above is correct and that this response is valid
             log.debug(f"[CMD][NICK] Tried to set an invalid name: {nickname}")
-            user.send_command(Message.ERR_ERRONEUSNICKNAME(user, nickname))
+            user.send_prefix(Message.ERR_ERRONEUSNICKNAME(user, nickname))
 
         if user.is_authenticated:
-            user.send_command(Message.user_greeting(user, len(self.clients)))
+            user.send_prefix(Message.user_greeting(user, len(self.clients)))
 
     def cmd_USER(self, user: Client, msg: list[str]) -> None:
         if len(msg) < 5:
-            user.send_command(Message.ERR_NEEDMOREPARAMS(msg[0]))
+            user.send_prefix(Message.ERR_NEEDMOREPARAMS(msg[0]))
             return
 
         # TODO: validation of all fields
@@ -148,11 +152,11 @@ class Server:
 
         log.debug(f"[CMD][USER] SET USER \"{user.username}\", w={user.mode[0]}, i={user.mode[1]}, {user.realname}")
         if user.is_authenticated:
-            user.send_command(Message.user_greeting(user, len(self.clients)))
+            user.send_prefix(Message.user_greeting(user, len(self.clients)))
 
     def cmd_PING(self, user: Client, msg: list[str]) -> None:
         # TODO: this is a placeholder
-        user.send_command(Message.CMD_PONG(msg[1]))
+        user.send_prefix(Message.CMD_PONG(msg[1]))
 
     def cmd_QUIT(self, user: Client, msg: list[str]) -> None:
         log.debug(f"[CMD][QUIT] {user.username} quit with message {msg=}")
@@ -161,6 +165,29 @@ class Server:
 
     def remove_client(self, client: Client) -> None:
         self.clients.remove(client)
+
+    def cmd_JOIN(self, user: Client, msg: list[str]) -> None:
+        # TODO: handle invalid command usage (such as no channels given or invalid channel name)
+        channels = list(filter(lambda x: x != '', msg[1].split(',')))
+        for c in channels:
+            self.join_channel(user, c)
+            user.send(Message.CMD_JOIN(user, c))
+            # TODO: return 331/332 and 353+366 after joining a channel
+
+    def join_channel(self, user: Client, channel: str) -> None:
+        if channel not in self.channels:
+            # TODO: validate channel name
+            self.channels[channel] = Channel(channel)
+
+        self.channels[channel].add_user(user)
+
+    def cmd_WHO(self, user: Client, msg: list[str]) -> None:
+        # TODO: handle non-existing channel
+        channel = self.channels[msg[1]]
+        reply = ''.join([Message.RPL_WHOREPLY(user, who_client, channel) for who_client in channel.users])
+        reply += Message.RPL_ENDOFWHO(user, channel)
+        user.send_prefix(reply)
+
 
 
 if __name__ == "__main__":
