@@ -1,4 +1,5 @@
 from socket import socket
+from typing import Iterable
 import config
 import log
 
@@ -11,11 +12,8 @@ class Client:
     op: bool = False
     mode: tuple[bool, bool]
 
-
     def __init__(self, conn: socket) -> None:
         self.conn = conn
-        self.__readbuffer = f""
-        self.__writebuffer = f""
 
     @property
     # TODO: refactor this function. Remove default values and use something that makes sense
@@ -23,16 +21,33 @@ class Client:
         # TODO: check auth requirements
         return self.nickname != "*" and self.username != ""
 
-    def send_prefix(self, data: str) -> None:
+    def send_with_prefix(self, data: str) -> None:
         '''Sends a string to the user. Adds a server prefix.'''
-        log.debug(f"[SEND_PREFIX] SENDING {self.nickname=} {data=}")
-        self.conn.send(f":{config.HOSTNAME} {data}".encode("UTF-8"))
+        log.debug(f"[SEND_PREFIX] SENDING TO {self.nickname=} {data=}")
 
-    # TODO: implement a command which sends list[str]
+        self.conn.send(f":{config.HOSTNAME} {data}\r\n".encode("UTF-8"))
+
+    def send_iter_with_prefix(self, data: Iterable[str]) -> None:
+        '''Sends an iterable of strings to the user. Adds a server prefix.'''
+        log.debug(f"[SEND_PREFIX_ITER] SENDING TO {self.nickname=} {data=}")
+
+        msg = ""
+        for s in data:
+            msg += f":{config.HOSTNAME} {s}\r\n"
+
+        self.conn.send(msg.encode("UTF-8"))
+
     def send(self, data: str) -> None:
         '''Sends a string to the user. Does not add a prefix.'''
-        log.debug(f"[SEND] SENDING {self.nickname=} {data=}")
-        self.conn.send(data.encode("UTF-8"))
+        log.debug(f"[SEND] SENDING TO {self.nickname=} {data=}")
 
-    def prefix(self) -> bytes:
-        return (b"%s!%s@%s" % (self.nickname.encode("UTF-8"), self.username.encode("UTF-8"), config.HOSTNAME.encode("UTF-8")))
+        self.conn.send((data + '\r\n').encode("UTF-8"))
+
+    def send_iter(self, data: Iterable[str]) -> None:
+        '''Sends an iterable of strings to the user. Does not add a prefix.'''
+        log.debug(f"[SEND_ITER] SENDING TO {self.nickname=} {data=}")
+
+        self.conn.send(('\r\n'.join(data) + '\r\n').encode("UTF-8"))
+
+    def prefix(self) -> str:
+        return f":{self.nickname}!{self.username}@{config.HOSTNAME}"
