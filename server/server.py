@@ -58,7 +58,7 @@ class Server:
 
                         # TODO: make sure disconnection handling works as it should
                         try:
-                            data = i.recv(512).decode("UTF-8")
+                            data = i.recv(2048).decode("UTF-8")
                         except ConnectionError as e:
                             print(f"[CLIENT] Connection error while trying to read from {i}: {e}")
                             self.cmd_QUIT(sender, ["QUIT", ":Leaving"])
@@ -76,7 +76,7 @@ class Server:
         except KeyboardInterrupt:
             print("[SERVER] KeyboardInterrupt received. Quitting...")
 
-    def handle_message(self, user: Client, msg: list[str]) -> None:
+    def handle_message(self, sender: Client, msg: list[str]) -> None:
         if len(msg) == 0 or len(msg[0]) == 0:
             return
 
@@ -89,19 +89,19 @@ class Server:
         msg[0] = msg[0].upper()
         match msg[0]:
             case "NICK":
-                self.cmd_NICK(user, msg)
+                self.cmd_NICK(sender, msg)
             case "USER":
-                self.cmd_USER(user, msg)
+                self.cmd_USER(sender, msg)
             case "PING":
-                self.cmd_PING(user, msg)
+                self.cmd_PING(sender, msg)
             case "QUIT":
-                self.cmd_QUIT(user, msg)
+                self.cmd_QUIT(sender, msg)
             case "JOIN":
-                self.cmd_JOIN(user, msg)
+                self.cmd_JOIN(sender, msg)
             case "WHO":
-                self.cmd_WHO(user, msg)
+                self.cmd_WHO(sender, msg)
             case "PRIVMSG":
-                self.cmd_PRIVMSG(user, msg)
+                self.cmd_PRIVMSG(sender, msg)
 
             case "CAP":
                 pass
@@ -109,29 +109,33 @@ class Server:
             case _:
                 log.debug(f"[CMD][NOT_HANDLED] {msg}")
                 # TODO: the docs say it should be returned to "a registered client". should check for auth?
-                user.send_with_prefix(Message.ERR_UNKNOWNCOMMAND(user, msg[0]))
+                sender.send_with_prefix(Message.ERR_UNKNOWNCOMMAND(sender, msg[0]))
 
-    def cmd_PRIVMSG(self, user: Client, msg: list[str]) -> None:
+    # TODO: too complex; split into multiple functions
+    def cmd_PRIVMSG(self, sender: Client, msg: list[str]) -> None:
         if len(msg) < 3:
-            user.send_with_prefix(Message.ERR_NEEDMOREPARAMS(msg[0]))
+            sender.send_with_prefix(Message.ERR_NEEDMOREPARAMS(msg[0]))
             return
 
         target = msg[1]
-        message = "".join(msg[2:])
+        message = " ".join(msg[2:]).strip()
         if message.startswith(':'):
             message = message[1:]
-        cmd = msg[0]
 
         if target in self.clients:
             target_client = self.clients[target]
-            log.debug(f"[CMD][PRIVMSG] Client {user} PRIVMSG to {target_client} {message=}")
-            # TODO: is this supposed to be target_client prefix? makes no sense
-            target_client.send(f"{target_client.prefix()} {cmd} {target} {message}")
+            log.debug(f"[CMD][PRIVMSG] Client {sender.nickname} PRIVMSG to {target_client.nickname} {message=}")
+            try:
+                target_client.send(f"{sender.prefix()} PRIVMSG {target} :{message}")
+            except ConnectionError as e:
+                print(f"[CMD][PRIVMSG] Connection error while trying to send a private message to {target_client}: {e}")
+                self.cmd_QUIT(target_client, ["QUIT", ":Leaving"])
         elif target.lower() in self.channels:
             channel = self.channels[target.lower()]
-            line = f"{user.prefix()} PRIVMSG {target.lower()} :{message}"
+            log.debug(f"[CMD][PRIVMSG] Client {sender.nickname} PRIVMSG to channel {channel.name} {message=}")
+            line = f"{sender.prefix()} PRIVMSG {target.lower()} :{message}"
             for target_client in channel.users:
-                if target_client != user:
+                if target_client != sender:
                     try:
                         target_client.send(line)
                     except ConnectionError as e:
@@ -141,108 +145,108 @@ class Server:
             # TODO: handle invalid target name
             pass
 
-    def cmd_NICK(self, user: Client, msg: list[str]) -> None:
+    def cmd_NICK(self, sender: Client, msg: list[str]) -> None:
         if len(msg) < 2:
-            user.send_with_prefix(Message.ERR_NEEDMOREPARAMS(msg[0]))
+            sender.send_with_prefix(Message.ERR_NEEDMOREPARAMS(msg[0]))
             return
 
         nickname = msg[1][:9]
         if RE_NICKNAME.fullmatch(nickname):
             if nickname in self.clients:
-                if self.clients[nickname] != user:
+                if self.clients[nickname] != sender:
                     log.debug(f"[CMD][NICK] Tried to set a name that is already taken: {nickname}")
-                    user.send_with_prefix(Message.ERR_NICKNAMEINUSE(user, nickname))
+                    sender.send_with_prefix(Message.ERR_NICKNAMEINUSE(sender, nickname))
                     return
 
             # TODO: if a user changes their name then a response must be sent
             # TODO: avoid greeting users who have already been greeted (which is those who are changing their name)
-            if user.nickname in self.clients:
-                del self.clients[user.nickname]
-            user.nickname = nickname
-            self.clients[nickname] = user
+            if sender.nickname in self.clients:
+                del self.clients[sender.nickname]
+            sender.nickname = nickname
+            self.clients[nickname] = sender
             print(self.clients)
             log.debug(f"[CMD][NICK] SET VALID NAME \"{nickname}\"")
         else:
             # TODO: verify that the regex above is correct and that this response is valid
             log.debug(f"[CMD][NICK] Tried to set an invalid name: {nickname}")
-            user.send_with_prefix(Message.ERR_ERRONEUSNICKNAME(user, nickname))
+            sender.send_with_prefix(Message.ERR_ERRONEUSNICKNAME(sender, nickname))
 
-        if user.is_authenticated:
-            user.send_iter_with_prefix(Message.user_greeting(user, len(self.clients)))
+        if sender.is_authenticated:
+            sender.send_iter_with_prefix(Message.user_greeting(sender, len(self.clients)))
 
-    def cmd_USER(self, user: Client, msg: list[str]) -> None:
+    def cmd_USER(self, sender: Client, msg: list[str]) -> None:
         if len(msg) < 5:
-            user.send_with_prefix(Message.ERR_NEEDMOREPARAMS(msg[0]))
+            sender.send_with_prefix(Message.ERR_NEEDMOREPARAMS(msg[0]))
             return
 
         # TODO: validation of all fields
-        user.username = msg[1]
+        sender.username = msg[1]
 
         try:
             mode = int(msg[2])
-            user.mode = (bool(mode & 2), bool(mode & 8))
+            sender.mode = (bool(mode & 2), bool(mode & 8))
         except ValueError:
             # TODO: handle invalid modes
             pass
 
         if msg[4].startswith(":"):
-            user.realname = ' '.join(msg[4:])[1:]
+            sender.realname = ' '.join(msg[4:])[1:]
         else:
-            user.realname = msg[4]
+            sender.realname = msg[4]
 
-        log.debug(f"[CMD][USER] SET USER \"{user.username}\", w={user.mode[0]}, i={user.mode[1]}, {user.realname}")
-        if user.is_authenticated:
-            user.send_iter_with_prefix(Message.user_greeting(user, len(self.clients)))
+        log.debug(f"[CMD][USER] SET USER \"{sender.username}\", w={sender.mode[0]}, i={sender.mode[1]}, {sender.realname}")
+        if sender.is_authenticated:
+            sender.send_iter_with_prefix(Message.user_greeting(sender, len(self.clients)))
 
-    def cmd_PING(self, user: Client, msg: list[str]) -> None:
+    def cmd_PING(self, sender: Client, msg: list[str]) -> None:
         # TODO: this is a placeholder
-        user.send_with_prefix(Message.CMD_PONG(msg[1]))
+        sender.send_with_prefix(Message.CMD_PONG(msg[1]))
 
-    def cmd_QUIT(self, user: Client, msg: list[str]) -> None:
-        log.debug(f"[CMD][QUIT] {user.username} quit with message {msg=}")
+    def cmd_QUIT(self, sender: Client, msg: list[str]) -> None:
+        log.debug(f"[CMD][QUIT] {sender.username} quit with message {msg=}")
         # TODO: leave notifications, message handling etc.
-        self.remove_client(user)
+        self.remove_client(sender)
 
     def remove_client(self, client: Client) -> None:
         del self.clients[client.nickname]
 
-    def cmd_JOIN(self, user: Client, msg: list[str]) -> None:
+    def cmd_JOIN(self, sender: Client, msg: list[str]) -> None:
         # TODO: handle invalid command usage (such as no channels given or invalid channel name)
         channels = list(filter(lambda x: x != '', msg[1].split(',')))
         for c in channels:
-            self.join_channel(user, c.lower())
+            self.join_channel(sender, c.lower())
             channel = self.channels[c]
             for c_user in channel.users:
-                c_user.send(Message.CMD_JOIN(user, c.lower()))
+                c_user.send(Message.CMD_JOIN(sender, c.lower()))
 
             if channel.topic != "":
-                user.send_with_prefix(Message.RPL_TOPIC(user, channel))
+                sender.send_with_prefix(Message.RPL_TOPIC(sender, channel))
             else:
-                user.send_with_prefix(Message.RPL_NOTOPIC(user, channel))
+                sender.send_with_prefix(Message.RPL_NOTOPIC(sender, channel))
 
-            user.send_iter_with_prefix([
-                Message.RPL_NAMREPLY(user, channel),
-                Message.RPL_ENDOFNAMES(user, channel)])
+            sender.send_iter_with_prefix([
+                Message.RPL_NAMREPLY(sender, channel),
+                Message.RPL_ENDOFNAMES(sender, channel)])
 
-    def join_channel(self, user: Client, channel: str) -> None:
+    def join_channel(self, sender: Client, channel: str) -> None:
         if channel not in self.channels:
             # TODO: validate channel name
             self.channels[channel] = Channel(channel)
-        self.channels[channel].add_user(user)
+        self.channels[channel].add_user(sender)
 
-    def cmd_WHO(self, user: Client, msg: list[str]) -> None:
+    def cmd_WHO(self, sender: Client, msg: list[str]) -> None:
         if len(msg) < 2:
-            user.send_with_prefix(Message.ERR_NEEDMOREPARAMS(msg[0]))
+            sender.send_with_prefix(Message.ERR_NEEDMOREPARAMS(msg[0]))
             return
 
         channel = self.channels.get(msg[1].lower())
         if channel is None:
-            user.send_with_prefix(Message.ERR_NOSUCHSERVER(user, msg[1].lower()))
+            sender.send_with_prefix(Message.ERR_NOSUCHSERVER(sender, msg[1].lower()))
             return
 
-        reply = [Message.RPL_WHOREPLY(user, who_client, channel) for who_client in channel.users]
-        reply.append(Message.RPL_ENDOFWHO(user, channel))
-        user.send_iter_with_prefix(reply)
+        reply = [Message.RPL_WHOREPLY(sender, who_client, channel) for who_client in channel.users]
+        reply.append(Message.RPL_ENDOFWHO(sender, channel))
+        sender.send_iter_with_prefix(reply)
 
 
 if __name__ == "__main__":

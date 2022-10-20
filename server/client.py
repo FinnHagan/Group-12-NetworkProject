@@ -23,13 +23,13 @@ class Client:
 
     def send_with_prefix(self, data: str) -> None:
         '''Sends a string to the user. Adds a server prefix.'''
-        log.debug(f"[SEND_PREFIX] SENDING TO {self.nickname=} {data=}")
+        log.debug(f"[SEND_PREFIX] SENDING TO {self.nickname} {data=}")
 
         self.conn.send(f":{config.HOSTNAME} {data}\r\n".encode("UTF-8"))
 
     def send_iter_with_prefix(self, data: Iterable[str]) -> None:
         '''Sends an iterable of strings to the user. Adds a server prefix.'''
-        log.debug(f"[SEND_PREFIX_ITER] SENDING TO {self.nickname=} {data=}")
+        log.debug(f"[SEND_PREFIX_ITER] SENDING TO {self.nickname} {data=}")
 
         msg = ""
         for s in data:
@@ -39,13 +39,13 @@ class Client:
 
     def send(self, data: str) -> None:
         '''Sends a string to the user. Does not add a prefix.'''
-        log.debug(f"[SEND] SENDING TO {self.nickname=} {data=}")
+        log.debug(f"[SEND] SENDING TO {self.nickname} {data=}")
 
         self.conn.send((data + '\r\n').encode("UTF-8"))
 
     def send_iter(self, data: Iterable[str]) -> None:
         '''Sends an iterable of strings to the user. Does not add a prefix.'''
-        log.debug(f"[SEND_ITER] SENDING TO {self.nickname=} {data=}")
+        log.debug(f"[SEND_ITER] SENDING TO {self.nickname} {data=}")
 
         self.conn.send(('\r\n'.join(data) + '\r\n').encode("UTF-8"))
 
