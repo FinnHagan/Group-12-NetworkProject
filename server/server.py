@@ -113,17 +113,25 @@ class Server:
         if len(msg) < 3:
             user.send_prefix(Message.ERR_NEEDMOREPARAMS(msg[0]))
             return
-        clientName=msg[1]
-        privmsg = b""
+        target=msg[1]
+        message = b""
         for i in range (len(msg)):
             if i > 1:
                 if i > 2:
-                    privmsg+=b" "
-                privmsg+=msg[i].encode("UTF-8")
-        client = self.nicknames[clientName]
+                    message+=b" "
+                message+=msg[i].encode("UTF-8")
         cmd = msg[0].encode("UTF-8")
-        sent=b":%s %s %s %s\r\n"% (client.prefix(), cmd, clientName.encode("UTF-8"), privmsg)
-        client.conn.send(sent)
+        if target in self.nicknames:
+            client = self.nicknames.get(target)
+            sent=b":%s %s %s %s\r\n"% (client.prefix(), cmd, target.encode("UTF-8"), message)
+            client.conn.send(sent)
+        elif target.lower() in self.channels:
+            channel = self.channels.get(target.lower())
+            message = b"%s :%s" % (target.lower().encode("UTF-8"), message)
+            line = b":%s %s %s\r\n" % (user.prefix(), cmd, message)
+            for client in channel.users:
+                if client != user:
+                    client.conn.send(line)
 
     def cmd_NICK(self, user: Client, msg: list[str]) -> None:
         if len(msg) < 2:
@@ -194,7 +202,7 @@ class Server:
         # TODO: handle invalid command usage (such as no channels given or invalid channel name)
         channels = list(filter(lambda x: x != '', msg[1].split(',')))
         for c in channels:
-            self.join_channel(user, c)
+            self.join_channel(user, c.lower())
             user.send(Message.CMD_JOIN(user, c))
             # TODO: return 331/332 and 353+366 after joining a channel
 
@@ -202,12 +210,11 @@ class Server:
         if channel not in self.channels:
             # TODO: validate channel name
             self.channels[channel] = Channel(channel)
-
         self.channels[channel].add_user(user)
 
     def cmd_WHO(self, user: Client, msg: list[str]) -> None:
         # TODO: handle non-existing channel
-        channel = self.channels[msg[1]]
+        channel = self.channels[msg[1].lower()]
         reply = ''.join([Message.RPL_WHOREPLY(user, who_client, channel) for who_client in channel.users])
         reply += Message.RPL_ENDOFWHO(user, channel)
         user.send_prefix(reply)
