@@ -211,8 +211,18 @@ class Server:
         channels = list(filter(lambda x: x != '', msg[1].split(',')))
         for c in channels:
             self.join_channel(user, c.lower())
-            user.send(Message.CMD_JOIN(user, c))
-            # TODO: return 331/332 and 353+366 after joining a channel
+            channel = self.channels[c]
+            for c_user in channel.users:
+                c_user.send(Message.CMD_JOIN(user, c.lower()))
+
+            if channel.topic != "":
+                user.send_with_prefix(Message.RPL_TOPIC(user, channel))
+            else:
+                user.send_with_prefix(Message.RPL_NOTOPIC(user, channel))
+
+            user.send_iter_with_prefix([
+                Message.RPL_NAMREPLY(user, channel),
+                Message.RPL_ENDOFNAMES(user, channel)])
 
     def join_channel(self, user: Client, channel: str) -> None:
         if channel not in self.channels:

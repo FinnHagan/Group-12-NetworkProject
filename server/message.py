@@ -58,6 +58,14 @@ class Message:
         return f"352 {client.nickname} {channel.name} {who_client.nickname} ::1 {config.HOSTNAME} {who_client.username} H :0 {client.realname}"
 
     @staticmethod
+    def RPL_NAMREPLY(client: Client, channel: Channel) -> str:
+        return f"353 {client.nickname} = {channel.name} :{' '.join([c.nickname for c in channel.users])}"
+
+    @staticmethod
+    def RPL_ENDOFNAMES(client: Client, channel: Channel) -> str:
+        return f"366 {client.nickname} {channel.name} :End of NAMES list"
+
+    @staticmethod
     def ERR_NOSUCHSERVER(client: Client, server_name: str) -> str:
         return f"402 {client.nickname} {server_name} :No such server"
 
@@ -82,11 +90,13 @@ class Message:
         return f"461 {command.upper()} :Not enough parameters"
 
     @staticmethod
+    # TODO: remove?
     def CMD_PONG(target: str) -> str:
         # TODO: I don't think this is how it works
         return f"PONG {config.HOSTNAME} :{target}"
 
     @staticmethod
+    # TODO: remove?
     def CMD_JOIN(client: Client, channel: str) -> str:
         # TODO: client address
         return f":{client.nickname}!{client.username}@::1 JOIN {channel}"
