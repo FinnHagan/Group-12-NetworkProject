@@ -10,7 +10,7 @@ class Channel:
 
     def __init__(self, name: str, topic: str = "") -> None:
         self.name = name
-        self.topic = ""
+        self.topic = topic
         self.users = set()
 
     def add_user(self, user: Client) -> None:

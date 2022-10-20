@@ -148,20 +148,20 @@ class Server:
 
         nickname = msg[1][:9]
         if RE_NICKNAME.fullmatch(nickname):
-            for client in self.clients:
-                if client == nickname:
+            if nickname in self.clients:
+                if self.clients[nickname] != user:
                     log.debug(f"[CMD][NICK] Tried to set a name that is already taken: {nickname}")
                     user.send_with_prefix(Message.ERR_NICKNAMEINUSE(user, nickname))
                     return
-            else:
-                # TODO: if a user changes their name then a response must be sent
-                # TODO: avoid greeting users who have already been greeted (which is those who are changing their name)
-                if user.nickname in self.clients:
-                    del self.clients[user.nickname]
-                user.nickname = nickname
-                self.clients[nickname] = user
-                print(self.clients)
-                log.debug(f"[CMD][NICK] SET VALID NAME \"{nickname}\"")
+
+            # TODO: if a user changes their name then a response must be sent
+            # TODO: avoid greeting users who have already been greeted (which is those who are changing their name)
+            if user.nickname in self.clients:
+                del self.clients[user.nickname]
+            user.nickname = nickname
+            self.clients[nickname] = user
+            print(self.clients)
+            log.debug(f"[CMD][NICK] SET VALID NAME \"{nickname}\"")
         else:
             # TODO: verify that the regex above is correct and that this response is valid
             log.debug(f"[CMD][NICK] Tried to set an invalid name: {nickname}")
