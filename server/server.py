@@ -16,7 +16,7 @@ class Server:
     server: socket
     name: str  # [1..64]
     channels: dict[str, Channel]  # {channel_name: Channel}
-    clients: set[Client]
+    nicknames: dict[str, Client]
     # TODO: REMOVE THE QUEUE? might not be necessary at all
     # TODO: store Message?
     # TODO: store these messages with a user? might be useful with async
@@ -27,7 +27,7 @@ class Server:
         self.name = name
         self.channels = {}
         self.queue = deque()
-        self.clients = set()
+        self.nicknames = {}
 
     def bind(self, addr: str = "127.0.0.1", port: int = 6667, ipv6: bool = True) -> None:
         # TODO: should probably reset the connections? Or maybe the whole server
@@ -36,7 +36,7 @@ class Server:
     def run(self) -> None:
         try:
             while True:
-                client_conns: list[socket] = [client.conn for client in self.clients]
+                client_conns: list[socket] = [self.nicknames[client].conn for client in self.nicknames]
                 # TODO: some clients might have writes blocked, which is what 'w' is for
                 # In that case there should probably be a write queue for each client?
                 r, _, _ = select.select(client_conns + [self.server], [], [], 15)
@@ -45,10 +45,12 @@ class Server:
                 for i in r:
                     if i is self.server:
                         conn, _ = self.server.accept()
-                        self.clients.add(Client(conn))
+                        client = Client(conn)
+                        self.nicknames[client.nickname] = client
+                        print(self.nicknames)
                     else:
                         # Search for the client with current socket
-                        sender = next(client for client in self.clients if client.conn is i)
+                        sender = self.nicknames[next(client for client in self.nicknames if self.nicknames[client].conn is i)]
 
                         # TODO: make sure disconnection handling works as it should
                         try:
@@ -96,6 +98,8 @@ class Server:
                 self.cmd_JOIN(user, msg)
             case "WHO":
                 self.cmd_WHO(user, msg)
+            case "PRIVMSG":
+                self.cmd_PRIVMSG(user,msg)
 
             case "CAP":
                 pass
@@ -105,6 +109,22 @@ class Server:
                 # TODO: the docs say it should be returned to "a registered cliend". should check for auth?
                 user.send_prefix(Message.ERR_UNKNOWNCOMMAND(msg[0]))
 
+    def cmd_PRIVMSG(self, user: Client, msg: list[str]) -> None:
+        if len(msg) < 3:
+            user.send_prefix(Message.ERR_NEEDMOREPARAMS(msg[0]))
+            return
+        clientName=msg[1]
+        privmsg = b""
+        for i in range (len(msg)):
+            if i > 1:
+                if i > 2:
+                    privmsg+=b" "
+                privmsg+=msg[i].encode("UTF-8")
+        client = self.nicknames[clientName]
+        cmd = msg[0].encode("UTF-8")
+        sent=b":%s %s %s %s\r\n"% (client.prefix(), cmd, clientName.encode("UTF-8"), privmsg)
+        client.conn.send(sent)
+
     def cmd_NICK(self, user: Client, msg: list[str]) -> None:
         if len(msg) < 2:
             user.send_prefix(Message.ERR_NEEDMOREPARAMS(msg[0]))
@@ -112,15 +132,19 @@ class Server:
 
         nickname = msg[1][:9]
         if RE_NICKNAME.fullmatch(nickname):
-            for client in self.clients:
-                if client.nickname == nickname:
+            for client in self.nicknames:
+                if client == nickname:
                     log.debug(f"[CMD][NICK] Tried to set a name that is already taken: {nickname}")
                     user.send_prefix(Message.ERR_NICKNAMEINUSE(user, nickname))
                     return
             else:
                 # TODO: if a user changes their name then a response must be sent
                 # TODO: avoid greeting users who have already been greeted (which is those who are changing their name)
+                if user.nickname in self.nicknames:
+                    del self.nicknames[user.nickname]
                 user.nickname = nickname
+                self.nicknames[nickname] = user
+                print(self.nicknames)
                 log.debug(f"[CMD][NICK] SET VALID NAME \"{nickname}\"")
         else:
             # TODO: verify that the regex above is correct and that this response is valid
@@ -128,7 +152,7 @@ class Server:
             user.send_prefix(Message.ERR_ERRONEUSNICKNAME(user, nickname))
 
         if user.is_authenticated:
-            user.send_prefix(Message.user_greeting(user, len(self.clients)))
+            user.send_prefix(Message.user_greeting(user, len(self.nicknames)))
 
     def cmd_USER(self, user: Client, msg: list[str]) -> None:
         if len(msg) < 5:
@@ -152,7 +176,7 @@ class Server:
 
         log.debug(f"[CMD][USER] SET USER \"{user.username}\", w={user.mode[0]}, i={user.mode[1]}, {user.realname}")
         if user.is_authenticated:
-            user.send_prefix(Message.user_greeting(user, len(self.clients)))
+            user.send_prefix(Message.user_greeting(user, len(self.nicknames)))
 
     def cmd_PING(self, user: Client, msg: list[str]) -> None:
         # TODO: this is a placeholder
@@ -164,7 +188,7 @@ class Server:
         self.remove_client(user)
 
     def remove_client(self, client: Client) -> None:
-        self.clients.remove(client)
+        del self.nicknames[client.nickname]
 
     def cmd_JOIN(self, user: Client, msg: list[str]) -> None:
         # TODO: handle invalid command usage (such as no channels given or invalid channel name)
