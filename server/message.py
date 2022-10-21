@@ -4,9 +4,11 @@ from channel import Channel
 
 
 class Message:
+    """Helper class to handle message formatting. Contains mostly static methods"""
 
     @staticmethod
     def user_greeting(client: Client, user_count: int = 0) -> list[str]:
+        """List of messages which are sent to greet a user"""
         return [
             Message.RPL_WELCOME(client),
             Message.RPL_YOURHOST(client),

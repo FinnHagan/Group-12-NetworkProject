@@ -1,6 +1,5 @@
 import re
 import select
-from collections import deque
 from socket import AF_INET, AF_INET6, create_server, socket
 
 import config
@@ -17,20 +16,14 @@ class Server:
     name: str  # [1..64]
     channels: dict[str, Channel]  # {channel_name: Channel}
     clients: dict[str, Client]
-    # TODO: REMOVE THE QUEUE? might not be necessary at all
-    # TODO: store Message?
-    # TODO: store these messages with a user? might be useful with async
-    # Mutliple messages can arrive at the same time, they have to be stored somewhere for processing
-    queue: deque[str]
 
     def __init__(self, name: str = "SERVER") -> None:
         self.name = name
         self.channels = {}
-        self.queue = deque()
         self.clients = {}
 
     def bind(self, addr: str = "127.0.0.1", port: int = 6667, ipv6: bool = True) -> None:
-        # TODO: should probably reset the connections? Or maybe the whole server
+        # TODO: should probably reset the connections? Or maybe the whole server. Shouldnt be called more than once, so might just move to __init__
         self.server = create_server((addr, port), family=AF_INET6 if ipv6 else AF_INET)
 
     def run(self) -> None:
@@ -78,6 +71,7 @@ class Server:
             print("[SERVER] KeyboardInterrupt received. Quitting...")
 
     def check_clients(self) -> None:
+        """Checks last interaction time with all clients, sends PING, disconnects unresponsive clients"""
         for client in dict(self.clients).values():      # Check for dead clients
             if not client.is_alive:
                 if client.is_pinged:
@@ -88,6 +82,7 @@ class Server:
                     client.is_pinged = True
 
     def handle_message(self, sender: Client, msg: list[str]) -> None:
+        """Main message handler"""
         if len(msg) == 0 or len(msg[0]) == 0:
             return
 
@@ -204,6 +199,7 @@ class Server:
                 Message.RPL_ENDOFNAMES(sender, channel)])
 
     def join_channel(self, sender: Client, channel: str) -> None:
+        """Add user to a channel with given name"""
         if channel not in self.channels:
             # TODO: validate channel name
             self.channels[channel] = Channel(channel)
@@ -249,6 +245,7 @@ class Server:
                 user.send(quit_msg)
 
     def remove_client(self, client: Client) -> None:
+        """Remove user from the server"""
         del self.clients[client.nickname]
 
     def cmd_WHO(self, sender: Client, msg: list[str]) -> None:

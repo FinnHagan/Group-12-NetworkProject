@@ -27,10 +27,12 @@ class Client:
 
     @property
     def is_alive(self) -> bool:
+        """The user is active and has sent/received PING or other messages"""
         return (time_ns() -
                 self.last_interaction) < 60 * 1000 * 1000 * 1000  # 60 seconds
 
     def update_last_interaction(self) -> None:
+        """'Interact' with the user, updating the timestamp of last interaction and setting is_pinged to False again"""
         self.last_interaction = time_ns()
         self.is_pinged = False
 
