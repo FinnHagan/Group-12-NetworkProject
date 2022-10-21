@@ -16,11 +16,13 @@ class Server:
     name: str  # [1..64]
     channels: dict[str, Channel]  # {channel_name: Channel}
     clients: dict[str, Client]
+    unauthenticated_clients: set[Client]
 
     def __init__(self, name: str = "SERVER") -> None:
         self.name = name
         self.channels = {}
         self.clients = {}
+        self.unauthenticated_clients = set()
 
     def bind(self, addr: str = "127.0.0.1", port: int = 6667, ipv6: bool = True) -> None:
         # TODO: should probably reset the connections? Or maybe the whole server. Shouldnt be called more than once, so might just move to __init__
@@ -30,24 +32,34 @@ class Server:
         try:
             while True:
                 client_conns: list[socket] = [client.conn for client in self.clients.values()]
+                unauth_client_conns = [client.conn for client in self.unauthenticated_clients]
                 # TODO: some clients might have writes blocked, which is what 'w' is for
                 # In that case there should probably be a write queue for each client?
                 # TODO: store last interaction time for clients and send PING to them. Remove inactive clients.
                 # This function returns every __timeout=5 seconds, even if no messages are received. This should be used to check and send PING
-                r, _, _ = select.select(client_conns + [self.server], [], [], 5)
+                r, _, _ = select.select(client_conns + unauth_client_conns + [self.server], [], [], 5)
 
                 i: socket
                 for i in r:
                     if i is self.server:
                         conn, _ = self.server.accept()
                         client = Client(conn)
-                        # TODO: the client here should be added to a separate list (set?) of unauthenticated clients
-                        self.clients[client.nickname] = client
-                        # print(self.clients)
+                        self.unauthenticated_clients.add(client)
                     else:
                         # Search for the client with current socket
                         # TODO: should handle unauthenticated clients separately. They can not use most of the commands, and must authenticate as soon as possible
-                        sender = next(client for client in self.clients.values() if client.conn is i)
+                        sender: Client | None = None
+                        for client in self.clients.values():
+                            if client.conn is i:
+                                sender = client
+                                break
+                        else:
+                            sender = next(client for client in self.unauthenticated_clients if client.conn is i)
+
+                        if sender is None:
+                            # TODO: we dont have a client with such connection, something is really wrong
+                            continue
+
                         # TODO: make sure disconnection handling works as it should
                         try:
                             data = i.recv(2048).decode("UTF-8")
@@ -130,13 +142,12 @@ class Server:
             sender.send_with_prefix(Message.ERR_NEEDMOREPARAMS(msg[0]))
             return
 
-        nickname = msg[1][:9]
+        nickname = msg[1][:9].lower()
         if RE_NICKNAME.fullmatch(nickname):
-            for c in self.clients:
-                if nickname.lower() == self.clients[c].nickname.lower():
-                    log.debug(f"[CMD][NICK] Tried to set a name that is already taken: {nickname}")
-                    sender.send_with_prefix(Message.ERR_NICKNAMEINUSE(sender, nickname))
-                    return
+            if nickname in self.clients:
+                log.debug(f"[CMD][NICK] Tried to set a name that is already taken: {nickname}")
+                sender.send_with_prefix(Message.ERR_NICKNAMEINUSE(sender, nickname))
+                return
 
             # TODO: if a user changes their name then a response must be sent
             # TODO: avoid greeting users who have already been greeted (which is those who are changing their name)
@@ -144,15 +155,19 @@ class Server:
                 del self.clients[sender.nickname]
             sender.nickname = nickname
             self.clients[nickname] = sender
-            print(self.clients)
             log.debug(f"[CMD][NICK] SET VALID NAME \"{nickname}\"")
         else:
             # TODO: verify that the regex above is correct and that this response is valid
             log.debug(f"[CMD][NICK] Tried to set an invalid name: {nickname}")
             sender.send_with_prefix(Message.ERR_ERRONEUSNICKNAME(sender, nickname))
 
+        # TODO: extract to a function as this is the same as USER greet handler
+        # TODO: store is_greeted
         if sender.is_authenticated:
             sender.send_iter_with_prefix(Message.user_greeting(sender, len(self.clients)))
+            if sender in self.unauthenticated_clients:
+                self.unauthenticated_clients.remove(sender)
+                self.clients[sender.nickname] = sender
 
     def cmd_USER(self, sender: Client, msg: list[str]) -> None:
         if len(msg) < 5:
@@ -177,6 +192,9 @@ class Server:
         log.debug(f"[CMD][USER] SET USER \"{sender.username}\", w={sender.mode[0]}, i={sender.mode[1]}, {sender.realname}")
         if sender.is_authenticated:
             sender.send_iter_with_prefix(Message.user_greeting(sender, len(self.clients)))
+            if sender in self.unauthenticated_clients:
+                self.unauthenticated_clients.remove(sender)
+                self.clients[sender.nickname] = sender
 
     def cmd_PING(self, sender: Client, msg: list[str]) -> None:
         # TODO: this is a placeholder
@@ -186,10 +204,11 @@ class Server:
         # TODO: handle invalid command usage (such as no channels given or invalid channel name)
         channels = list(filter(lambda x: x != '', msg[1].split(',')))
         for c in channels:
-            self.join_channel(sender, c.lower())
-            channel = self.channels[c.lower()]
+            c = c.lower()
+            self.join_channel(sender, c)
+            channel = self.channels[c]
             for c_user in channel.users:
-                c_user.send(Message.CMD_JOIN(sender, c.lower()))
+                c_user.send(Message.CMD_JOIN(sender, c))
 
             if channel.topic != "":
                 sender.send_with_prefix(Message.RPL_TOPIC(sender, channel))
@@ -273,13 +292,13 @@ class Server:
         target = msg[1].lower()
         message = self.join_message_tail(msg[2:])
 
-        for c in self.clients:
-            if self.clients[c].nickname.lower() == target:
-                target_client = self.clients[c]
-                log.debug(f"[CMD][PRIVMSG] Client {sender.nickname} PRIVMSG to {target_client.nickname} {message=}")
-                self.send_privmsg_line(sender, target_client, target_client.nickname, message)
-                return
-        if target in self.channels:
+        if target in self.clients:
+            target_client = self.clients[target]
+            log.debug(f"[CMD][PRIVMSG] Client {sender.nickname} PRIVMSG to {target_client.nickname} {message=}")
+            self.send_privmsg_line(sender, target_client, target_client.nickname, message)
+            return
+        elif target in self.channels:
+            # TODO: ERR_CANNOTSENDTOCHAN when not on channel
             channel = self.channels[target.lower()]
             log.debug(f"[CMD][PRIVMSG] Client {sender.nickname} PRIVMSG to channel {channel.name} {message=}")
             for target_client in channel.users:
