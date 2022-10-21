@@ -69,6 +69,7 @@ class Server:
                 self.check_clients()
         except KeyboardInterrupt:
             print("[SERVER] KeyboardInterrupt received. Quitting...")
+            self.server.close()
 
     def check_clients(self) -> None:
         """Checks last interaction time with all clients, sends PING, disconnects unresponsive clients"""

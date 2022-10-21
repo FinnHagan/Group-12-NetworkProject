@@ -40,7 +40,7 @@ class Client:
         '''Sends a string to the user. Adds a server prefix.'''
         log.debug(f"[SEND_PREFIX] SENDING TO {self.nickname} {data=}")
 
-        self.conn.send(f":{config.HOSTNAME} {data}\r\n".encode("UTF-8"))
+        self.conn.sendall(f":{config.HOSTNAME} {data}\r\n".encode("UTF-8"))
 
     def send_iter_with_prefix(self, data: Iterable[str]) -> None:
         '''Sends an iterable of strings to the user. Adds a server prefix.'''
@@ -50,19 +50,19 @@ class Client:
         for s in data:
             msg += f":{config.HOSTNAME} {s}\r\n"
 
-        self.conn.send(msg.encode("UTF-8"))
+        self.conn.sendall(msg.encode("UTF-8"))
 
     def send(self, data: str) -> None:
         '''Sends a string to the user. Does not add a prefix.'''
         log.debug(f"[SEND] SENDING TO {self.nickname} {data=}")
 
-        self.conn.send((data + '\r\n').encode("UTF-8"))
+        self.conn.sendall((data + '\r\n').encode("UTF-8"))
 
     def send_iter(self, data: Iterable[str]) -> None:
         '''Sends an iterable of strings to the user. Does not add a prefix.'''
         log.debug(f"[SEND_ITER] SENDING TO {self.nickname} {data=}")
 
-        self.conn.send(('\r\n'.join(data) + '\r\n').encode("UTF-8"))
+        self.conn.sendall(('\r\n'.join(data) + '\r\n').encode("UTF-8"))
 
     @property
     def prefix(self) -> str:
