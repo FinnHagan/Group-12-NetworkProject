@@ -80,6 +80,7 @@ class Server:
                     self.cmd_QUIT(client, ["QUIT", ":Timed out"])
                 else:
                     client.send_with_prefix(Message.CMD_PING())
+                    client.update_last_interaction()
                     client.is_pinged = True
 
     def handle_message(self, sender: Client, msg: list[str]) -> None:
@@ -166,7 +167,7 @@ class Server:
             sender.mode = (bool(mode & 2), bool(mode & 8))
         except ValueError:
             # TODO: handle invalid modes
-            pass
+            sender.mode = (False, False)
 
         if msg[4].startswith(":"):
             sender.realname = ' '.join(msg[4:])[1:]
@@ -247,6 +248,7 @@ class Server:
 
     def remove_client(self, client: Client) -> None:
         """Remove user from the server"""
+        self.clients[client.nickname].conn.close()
         del self.clients[client.nickname]
 
     def cmd_WHO(self, sender: Client, msg: list[str]) -> None:
