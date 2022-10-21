@@ -84,7 +84,7 @@ def display_users(msg):
 def update_users_joining(msg):
     user = msg[0][1:].split("!",1)[0]
     if user not in userList:
-        userList.remove(NICK)
+        display_users(msg)
         userList.append(user)
         print(userList)
 
@@ -92,7 +92,7 @@ def update_users_joining(msg):
 def update_users_leaving(msg):
     user = msg[0][1:].split("!",1)[0]
     if user in userList:
-        userList.remove(NICK)
+        display_users()
         userList.remove(user)
         print(userList)
 
@@ -131,7 +131,7 @@ def process_message(msg):
             randomSlap = origin
             slapped = randomSlap
             while slapped == randomSlap:
-                randomSlap = get_random_user()
+                randomSlap = get_random_user() if len(userList) > 1 else "yourself"
             send_message("Slap " + randomSlap + " around the face with a large trout", destination)
                         
     #Lets us know it is a private message        
