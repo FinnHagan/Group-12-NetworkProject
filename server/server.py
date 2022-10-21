@@ -131,8 +131,8 @@ class Server:
 
         nickname = msg[1][:9]
         if RE_NICKNAME.fullmatch(nickname):
-            if nickname in self.clients:
-                if self.clients[nickname] != sender:
+            for c in self.clients:
+                if nickname.lower() == self.clients[c].nickname.lower():
                     log.debug(f"[CMD][NICK] Tried to set a name that is already taken: {nickname}")
                     sender.send_with_prefix(Message.ERR_NICKNAMEINUSE(sender, nickname))
                     return
@@ -186,7 +186,7 @@ class Server:
         channels = list(filter(lambda x: x != '', msg[1].split(',')))
         for c in channels:
             self.join_channel(sender, c.lower())
-            channel = self.channels[c]
+            channel = self.channels[c.lower()]
             for c_user in channel.users:
                 c_user.send(Message.CMD_JOIN(sender, c.lower()))
 
@@ -271,12 +271,13 @@ class Server:
         target = msg[1].lower()
         message = self.join_message_tail(msg[2:])
 
-        if target in self.clients:
-            target_client = self.clients[target]
-            log.debug(f"[CMD][PRIVMSG] Client {sender.nickname} PRIVMSG to {target_client.nickname} {message=}")
-            self.send_privmsg_line(sender, target_client, target_client.nickname, message)
-        elif target in self.channels:
-            # TODO: ERR_CANNOTSENDTOCHAN when not on channel
+        for c in self.clients:
+            if self.clients[c].nickname.lower() == target:
+                target_client = self.clients[c]
+                log.debug(f"[CMD][PRIVMSG] Client {sender.nickname} PRIVMSG to {target_client.nickname} {message=}")
+                self.send_privmsg_line(sender, target_client, target_client.nickname, message)
+                return
+        if target in self.channels:
             channel = self.channels[target.lower()]
             log.debug(f"[CMD][PRIVMSG] Client {sender.nickname} PRIVMSG to channel {channel.name} {message=}")
             for target_client in channel.users:
