@@ -1,9 +1,7 @@
 import socket, time, argparse, random, datetime
-#Connect to miniircd python miniircd --ipv6 --debug
-
 #Initialising variables
 PORT = 6667
-HOST = "::1" #fc00:1337::17/96 is the host we will use, ::1 is for testing purposes
+HOST = "fc00:1337::17"
 CHANNEL = "#test"
 NICK = "BOT"
 userList = []
@@ -16,21 +14,18 @@ parser.add_argument("--port", "--p", help= "Please enter your server's port numb
 parser.add_argument("--name", "--n", help= "Please enter the nickname of the bot", required = False, default = NICK)
 parser.add_argument("--channel", "--c", help= "Please enter the channel you would like to join", required = False, default = CHANNEL)
 args = parser.parse_args()
-
 HOST = args.host
-PORT = args.port
+PORT = int(args.port) #Needs converted to int as # can't be processed in the terminal
 NICK = args.name
 CHANNEL = args.channel
+
 #Initialising the socket
 s = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
 
 #Function to connect to the server
 def connect():
-
-    #Tries to connect to the sever
     try:
         print("BOT is trying to connect to the server...")
-        #Connecting to the server
         s.connect((HOST, PORT))
         #Alerts the user what HOST and PORT the BOT is connecting to
         print (f"Connecting at {HOST}/{PORT}")
@@ -39,14 +34,11 @@ def connect():
     except:
         print("BOT failed to connect to the server, attempting to reconnect...")
         time.sleep(5)
-        #Try to connect again
         try:
             s.connect((HOST, PORT))
-        #If failed again, stop trying to reconnect
         except:
             print("BOT cannot connect to the server, disconnecting...")
-            exit()
-    
+            exit()    
     try:
         #Sending client information to the server
         s.send(bytes("USER "+ NICK + " "+ NICK +" "+ NICK + " :python\r\n", "UTF-8"))
@@ -58,10 +50,9 @@ def connect():
 
 #Function to join the channel
 def join(chan):
-    #Sends the join command to the server
     try:
         print("Attempting to join channel... ")
-        #Join the channel
+        #Sending join information to the server
         s.send(bytes("JOIN "+ chan + "\r\n", "UTF-8"))
         print("Successfully joined channel.")
     except:
@@ -77,7 +68,7 @@ def message_split(message):
     message = message.split(" ")
     return message
 
-#Function to display the users in the channel
+#Function to display the users in the channel and store their information
 def display_users(msg):
     for i in range(5, len(msg)):
         if i == 5:
@@ -85,7 +76,25 @@ def display_users(msg):
             continue
         userList.append(msg[i])
     print("Current users in the channel: ")
+    userList.remove(NICK)
     print(userList)
+    return userList
+
+#If a user joins the channel, add them to the user list
+def update_users_joining(msg):
+    user = msg[0][1:].split("!",1)[0]
+    if user not in userList:
+        userList.remove(NICK)
+        userList.append(user)
+        print(userList)
+
+#If a user leaves the channel, remove them from the user list
+def update_users_leaving(msg):
+    user = msg[0][1:].split("!",1)[0]
+    if user in userList:
+        userList.remove(NICK)
+        userList.remove(user)
+        print(userList)
 
 #Get random fact from text file
 def get_random_fact():
@@ -104,35 +113,37 @@ def get_random_user():
 
 #Process messages as per the their string format
 def process_message(msg):
-    origin= msg[0][1:].split("!",1)[0]
-    message = msg[3] #Get the message
+    origin= msg[0][1:].split("!",1)[0] #Finds the origin of the message
+    message = msg[3] #Gets the message
     destination = msg[2] #What channel or user the message is directed to
 
-    if len(origin) < 17:
-
-        #Lets us know that the message is either a private message or a channel message
-        if destination.lower() == CHANNEL.lower():
-            #If 
-            if message.find("!hello") != -1:
-                greeting = datetime.datetime.now().strftime('%d-%m-%y %H:%M')
-                send_message("Hello " + origin + " it is currently " + greeting + " ", destination)
-
-            if message.find("!slap") != -1:
+    #Lets us know that the message is either a private message or a channel message
+    if destination.lower() == CHANNEL.lower():
+        
+        #Responds appropriately to the hello command 
+        if message.find("!hello") != -1:
+            greeting = datetime.datetime.now().strftime('%d-%m-%y %H:%M')
+            send_message("Hello " + origin + " it is currently " + greeting + " ", destination)
+        
+        #Responds appropriately to the slap command
+        if message.find("!slap") != -1:
+            #Slaps a random user which is not the bot or themselves
+            randomSlap = origin
+            slapped = randomSlap
+            while slapped == randomSlap:
                 randomSlap = get_random_user()
-                send_message("slaps " + randomSlap + " around a bit with a large trout", destination)
-
-        #Lets us know it is a private message        
-        if destination.lower() == NICK.lower():
-            #Hence respond with a random fact
-            if message != -1:
-                fact = get_random_fact()
-                send_message(fact, origin)
+            send_message("Slap " + randomSlap + " around the face with a large trout", destination)
+                        
+    #Lets us know it is a private message        
+    if destination.lower() == NICK.lower():
+        #Hence respond with a random fact
+        if message != -1:
+            fact = get_random_fact()
+            send_message(fact, origin)
 
 #Function to handle separate commands
 def handle_commands(msg):
-    # print(msg)
     try:
-        #If the message is a PING, then PONG back
         if msg[0] == "PING":
             ping_pong(msg[0])
         #If a PRIVMSG, then process the message   
@@ -141,6 +152,14 @@ def handle_commands(msg):
         #If a 353, then display the users in the channel
         elif msg[1] == "353":
             display_users(msg)
+        #If a 433, then the BOT nickname is already in use
+        elif msg[1] == "433":
+            print("BOT nickname is being used, please try again using command line arguments.")
+            exit()
+        elif msg[1] == "JOIN":
+            update_users_joining(msg)
+        elif msg[1] == "QUIT":
+            update_users_leaving(msg)
     except:
         return
         
@@ -157,9 +176,4 @@ def main():
         print(msg)
         msg = message_split(msg)
         handle_commands(msg)
-    
-    #Add in handling of arguments into this loop too.
-
-                        
-#Calls the main function to start the program
 main()
