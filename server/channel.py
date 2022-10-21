@@ -1,7 +1,6 @@
 from client import Client
 
 
-# TODO: a channel is pretty much a user? might want to make it a subclass
 class Channel:
     name: str
     # TODO: this should probably be a {username: (modes, etc.)} dictionary
@@ -15,3 +14,6 @@ class Channel:
 
     def add_user(self, user: Client) -> None:
         self.users.add(user)
+
+    def remove_user(self, user: Client) -> None:
+        self.users.remove(user)

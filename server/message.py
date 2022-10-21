@@ -90,6 +90,10 @@ class Message:
         return f"461 {command.upper()} :Not enough parameters"
 
     @staticmethod
+    def CMD_PING() -> str:
+        return f"PING :{config.HOSTNAME}"
+
+    @staticmethod
     # TODO: remove?
     def CMD_PONG(target: str) -> str:
         # TODO: I don't think this is how it works

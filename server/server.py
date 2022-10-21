@@ -55,7 +55,6 @@ class Server:
                         # Search for the client with current socket
                         # TODO: should handle unauthenticated clients separately. They can not use most of the commands, and must authenticate as soon as possible
                         sender = next(client for client in self.clients.values() if client.conn is i)
-
                         # TODO: make sure disconnection handling works as it should
                         try:
                             data = i.recv(2048).decode("UTF-8")
@@ -64,6 +63,7 @@ class Server:
                             self.cmd_QUIT(sender, ["QUIT", ":Leaving"])
                             continue
 
+                        sender.update_last_interaction()
                         # There can be multiple '\r\n' separated messages in one chunk of data
                         messages: list[str] = data.split("\r\n")
                         # print(f"MSG FROM {i}: {len(data)} {data}, {messages}")
@@ -73,18 +73,23 @@ class Server:
                                 continue
                             self.handle_message(sender, msg.split(" "))
 
+                self.check_clients()
         except KeyboardInterrupt:
             print("[SERVER] KeyboardInterrupt received. Quitting...")
+
+    def check_clients(self) -> None:
+        for client in dict(self.clients).values():      # Check for dead clients
+            if not client.is_alive:
+                if client.is_pinged:
+                    # Client timed out
+                    self.cmd_QUIT(client, ["QUIT", ":Timed out"])
+                else:
+                    client.send_with_prefix(Message.CMD_PING())
+                    client.is_pinged = True
 
     def handle_message(self, sender: Client, msg: list[str]) -> None:
         if len(msg) == 0 or len(msg[0]) == 0:
             return
-
-        # TODO: I have misunderstood what the prefix does, should probably investigate and fix
-        # Message starts with a prefix
-        # if msg[0][0] == ":":
-        #    user.prefix = msg[0][1:]
-        #    msg.pop(0)
 
         msg[0] = msg[0].upper()
         match msg[0]:
@@ -98,11 +103,15 @@ class Server:
                 self.cmd_QUIT(sender, msg)
             case "JOIN":
                 self.cmd_JOIN(sender, msg)
+            case "PART":
+                self.cmd_PART(sender, msg)
             case "WHO":
                 self.cmd_WHO(sender, msg)
             case "PRIVMSG":
                 self.cmd_PRIVMSG(sender, msg)
 
+            case "PONG":
+                pass
             case "CAP":
                 pass
 
@@ -111,37 +120,13 @@ class Server:
                 # TODO: the docs say it should be returned to "a registered client". should check for auth?
                 sender.send_with_prefix(Message.ERR_UNKNOWNCOMMAND(sender, msg[0]))
 
-    # TODO: too complex; split into multiple functions
-    def cmd_PRIVMSG(self, sender: Client, msg: list[str]) -> None:
-        if len(msg) < 3:
-            sender.send_with_prefix(Message.ERR_NEEDMOREPARAMS(msg[0]))
-            return
-
-        target = msg[1].lower()
-        message = " ".join(msg[2:]).strip()
-        if message.startswith(':'):
-            message = message[1:]
-
-        if target in self.clients:
-            target_client = self.clients[target]
-            log.debug(f"[CMD][PRIVMSG] Client {sender.nickname} PRIVMSG to {target_client.nickname} {message=}")
-            self.send_privmsg_line(sender, target_client, target_client.nickname, message)
-        elif target in self.channels:
-            channel = self.channels[target.lower()]
-            log.debug(f"[CMD][PRIVMSG] Client {sender.nickname} PRIVMSG to channel {channel.name} {message=}")
-            for target_client in channel.users:
-                if target_client != sender:
-                    self.send_privmsg_line(sender, target_client, target, message)
-        else:
-            # TODO: handle invalid target name
-            pass
-
-    def send_privmsg_line(self, sender: Client, target_client: Client, target_name: str, message: str) -> None:
-        try:
-            target_client.send(f"{sender.prefix()} PRIVMSG {target_name.lower()} :{message}")
-        except ConnectionError as e:
-            print(f"[CMD][PRIVMSG] Connection error while trying to send a message to {target_name}: {e}")
-            self.cmd_QUIT(target_client, ["QUIT", ":Leaving"])
+    @staticmethod
+    def join_message_tail(msg: list[str]) -> str:
+        """Joins list of words which are located at the end of a message.
+        Returns the first word if there is no ':' symbol.
+        Returns the whole line if there is a ':' symbol"""
+        message = ' '.join(msg)[1:] if msg[0].startswith(":") else msg[0]
+        return message.strip()
 
     def cmd_NICK(self, sender: Client, msg: list[str]) -> None:
         if len(msg) < 2:
@@ -200,14 +185,6 @@ class Server:
         # TODO: this is a placeholder
         sender.send_with_prefix(Message.CMD_PONG(msg[1]))
 
-    def cmd_QUIT(self, sender: Client, msg: list[str]) -> None:
-        log.debug(f"[CMD][QUIT] {sender.username} quit with message {msg=}")
-        # TODO: leave notifications, message handling etc.
-        self.remove_client(sender)
-
-    def remove_client(self, client: Client) -> None:
-        del self.clients[client.nickname]
-
     def cmd_JOIN(self, sender: Client, msg: list[str]) -> None:
         # TODO: handle invalid command usage (such as no channels given or invalid channel name)
         channels = list(filter(lambda x: x != '', msg[1].split(',')))
@@ -232,6 +209,48 @@ class Server:
             self.channels[channel] = Channel(channel)
         self.channels[channel].add_user(sender)
 
+    def cmd_PART(self, sender: Client, msg: list[str]) -> None:
+        if len(msg) < 2:
+            sender.send_with_prefix(Message.ERR_NEEDMOREPARAMS(msg[0]))
+            return
+
+        channels = msg[1].split(',')
+        message = self.join_message_tail(msg[2:])
+
+        for c in channels:
+            channel = self.channels.get(c.lower())
+            if channel is not None:
+                if sender in channel.users:
+                    part_msg = f"{sender.prefix} PART {channel.name} :{message}"
+                    for user in channel.users:
+                        user.send(part_msg)
+                    channel.remove_user(sender)
+                else:
+                    # TODO: return ERR_NOTONCHANNEL
+                    pass
+            else:
+                # TODO: return ERR_NOSUCHCHANNEL
+                pass
+
+        log.debug(f"[CMD][PART] {sender.username} is leaving channels {msg[1]} with message {message=}")
+
+    def cmd_QUIT(self, sender: Client, msg: list[str]) -> None:
+        log.debug(f"[CMD][QUIT] {sender.username} quit with message {msg=}")
+
+        self.remove_client(sender)
+        for c in self.channels.values():
+            if sender in c.users:
+                c.remove_user(sender)
+
+            message = self.join_message_tail(msg[1:])
+
+            quit_msg = f"{sender.prefix} QUIT :{message}"
+            for user in c.users:
+                user.send(quit_msg)
+
+    def remove_client(self, client: Client) -> None:
+        del self.clients[client.nickname]
+
     def cmd_WHO(self, sender: Client, msg: list[str]) -> None:
         if len(msg) < 2:
             sender.send_with_prefix(Message.ERR_NEEDMOREPARAMS(msg[0]))
@@ -245,6 +264,36 @@ class Server:
         reply = [Message.RPL_WHOREPLY(sender, who_client, channel) for who_client in channel.users]
         reply.append(Message.RPL_ENDOFWHO(sender, channel))
         sender.send_iter_with_prefix(reply)
+
+    def cmd_PRIVMSG(self, sender: Client, msg: list[str]) -> None:
+        if len(msg) < 3:
+            sender.send_with_prefix(Message.ERR_NEEDMOREPARAMS(msg[0]))
+            return
+
+        target = msg[1].lower()
+        message = self.join_message_tail(msg[2:])
+
+        if target in self.clients:
+            target_client = self.clients[target]
+            log.debug(f"[CMD][PRIVMSG] Client {sender.nickname} PRIVMSG to {target_client.nickname} {message=}")
+            self.send_privmsg_line(sender, target_client, target_client.nickname, message)
+        elif target in self.channels:
+            # TODO: ERR_CANNOTSENDTOCHAN when not on channel
+            channel = self.channels[target.lower()]
+            log.debug(f"[CMD][PRIVMSG] Client {sender.nickname} PRIVMSG to channel {channel.name} {message=}")
+            for target_client in channel.users:
+                if target_client != sender:
+                    self.send_privmsg_line(sender, target_client, target, message)
+        else:
+            # TODO: handle invalid target name
+            pass
+
+    def send_privmsg_line(self, sender: Client, target_client: Client, target_name: str, message: str) -> None:
+        try:
+            target_client.send(f"{sender.prefix} PRIVMSG {target_name.lower()} :{message}")
+        except ConnectionError as e:
+            print(f"[CMD][PRIVMSG] Connection error while trying to send a message to {target_name}: {e}")
+            self.cmd_QUIT(target_client, ["QUIT", ":Leaving"])
 
 
 if __name__ == "__main__":

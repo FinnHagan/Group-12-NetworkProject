@@ -1,5 +1,6 @@
 from socket import socket
 from typing import Iterable
+from time import time_ns
 import config
 import log
 
@@ -11,15 +12,27 @@ class Client:
     realname: str = ""
     op: bool = False
     mode: tuple[bool, bool]
+    last_interaction: int
+    is_pinged: bool = False
 
     def __init__(self, conn: socket) -> None:
         self.conn = conn
+        self.last_interaction = time_ns()
 
     @property
     # TODO: refactor this function. Remove default values and use something that makes sense
     def is_authenticated(self) -> bool:
         # TODO: check auth requirements
         return self.nickname != "*" and self.username != ""
+
+    @property
+    def is_alive(self) -> bool:
+        return (time_ns() -
+                self.last_interaction) < 60 * 1000 * 1000 * 1000  # 60 seconds
+
+    def update_last_interaction(self) -> None:
+        self.last_interaction = time_ns()
+        self.is_pinged = False
 
     def send_with_prefix(self, data: str) -> None:
         '''Sends a string to the user. Adds a server prefix.'''
@@ -49,5 +62,6 @@ class Client:
 
         self.conn.send(('\r\n'.join(data) + '\r\n').encode("UTF-8"))
 
+    @property
     def prefix(self) -> str:
         return f":{self.nickname}!{self.username}@{config.HOSTNAME}"
