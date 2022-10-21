@@ -117,7 +117,7 @@ class Server:
             sender.send_with_prefix(Message.ERR_NEEDMOREPARAMS(msg[0]))
             return
 
-        target = msg[1]
+        target = msg[1].lower()
         message = " ".join(msg[2:]).strip()
         if message.startswith(':'):
             message = message[1:]
@@ -125,25 +125,23 @@ class Server:
         if target in self.clients:
             target_client = self.clients[target]
             log.debug(f"[CMD][PRIVMSG] Client {sender.nickname} PRIVMSG to {target_client.nickname} {message=}")
-            try:
-                target_client.send(f"{sender.prefix()} PRIVMSG {target} :{message}")
-            except ConnectionError as e:
-                print(f"[CMD][PRIVMSG] Connection error while trying to send a private message to {target_client}: {e}")
-                self.cmd_QUIT(target_client, ["QUIT", ":Leaving"])
-        elif target.lower() in self.channels:
+            self.send_privmsg_line(sender, target_client, target_client.nickname, message)
+        elif target in self.channels:
             channel = self.channels[target.lower()]
             log.debug(f"[CMD][PRIVMSG] Client {sender.nickname} PRIVMSG to channel {channel.name} {message=}")
-            line = f"{sender.prefix()} PRIVMSG {target.lower()} :{message}"
             for target_client in channel.users:
                 if target_client != sender:
-                    try:
-                        target_client.send(line)
-                    except ConnectionError as e:
-                        print(f"[CMD][PRIVMSG] Connection error while trying to send a private message to {target_client}: {e}")
-                        self.cmd_QUIT(target_client, ["QUIT", ":Leaving"])
+                    self.send_privmsg_line(sender, target_client, target, message)
         else:
             # TODO: handle invalid target name
             pass
+
+    def send_privmsg_line(self, sender: Client, target_client: Client, target_name: str, message: str) -> None:
+        try:
+            target_client.send(f"{sender.prefix()} PRIVMSG {target_name.lower()} :{message}")
+        except ConnectionError as e:
+            print(f"[CMD][PRIVMSG] Connection error while trying to send a message to {target_name}: {e}")
+            self.cmd_QUIT(target_client, ["QUIT", ":Leaving"])
 
     def cmd_NICK(self, sender: Client, msg: list[str]) -> None:
         if len(msg) < 2:
